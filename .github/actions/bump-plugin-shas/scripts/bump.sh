@@ -118,6 +118,33 @@ while IFS= read -r entry; do
     continue
   fi
 
+  # No-op subtree suppression (git-subdir entries only): the repo HEAD moving
+  # does NOT mean THIS plugin's subtree changed. If the tree object at $subdir
+  # is byte-identical between old_sha and new_sha, the plugin content is
+  # unchanged and bumping the pin is pure churn — a clone + validate + signed
+  # commit + PR + the three dispatched required-check runs, all for nothing.
+  # Probe the two trees cheaply (blobless, depth-1 → commit+tree objects only,
+  # no blobs) and skip when they match. FAIL OPEN: any probe failure (init /
+  # remote / fetch / ls-tree) falls through to the normal bump path, so a real
+  # change is never suppressed because the probe was uncertain. A path added or
+  # removed between the SHAs yields one empty tree oid → treated as a real bump.
+  if [[ -n "$subdir" && "$old_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    probe="$workroot/probe-$checked"
+    if git init -q "$probe" 2>/dev/null \
+       && git -C "$probe" remote add origin "$full_url" 2>/dev/null \
+       && timeout 120 git -C "$probe" fetch -q --filter=blob:none --depth 1 origin "$old_sha" "$new_sha" 2>/dev/null; then
+      old_tree="$(git -C "$probe" ls-tree "$old_sha" -- "$subdir" 2>/dev/null | awk '$2=="tree"{print $3; exit}')"
+      new_tree="$(git -C "$probe" ls-tree "$new_sha" -- "$subdir" 2>/dev/null | awk '$2=="tree"{print $3; exit}')"
+      if [[ -n "$old_tree" && "$old_tree" == "$new_tree" ]]; then
+        log "$name: subtree '$subdir' unchanged ${old_sha:0:8}→${new_sha:0:8}; suppressing no-op bump"
+        skipped="$(jq -c --arg n "$name" --arg r "subtree '$subdir' unchanged ${old_sha:0:8}→${new_sha:0:8} (no-op bump suppressed)" '. + [{name:$n, reason:$r}]' <<<"$skipped")"
+        rm -rf -- "$probe"
+        continue
+      fi
+    fi
+    rm -rf -- "$probe"
+  fi
+
   # Per-entry early-skip: if there's already an open bump PR for this slug,
   # skip clone+validate to avoid wasting budget on plugins waiting on
   # developer/triage response. Batch mode doesn't need this (single PR).
