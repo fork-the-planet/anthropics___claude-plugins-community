@@ -1,27 +1,27 @@
 name: Bump Plugin SHAs
 
-# Nightly freshness sweep: for each external entry whose upstream HEAD has moved
+# Daily freshness sweep: for each external entry whose upstream HEAD has moved
 # past its pinned SHA, validate at the new SHA with `claude plugin validate`
-# inline, then open ONE batch PR (bump/plugin-shas) with all passing bumps. Each
-# run force-resets that branch, so a previous night's unmerged PR is replaced —
-# review and merge same-day to avoid churn.
+# inline, then open ONE PR PER bumped plugin on branch bump/<name> (per-entry
+# mode). A failing bump stays ISOLATED in its own PR — it never blocks the other
+# bumps, so no auto-revert workflow is needed (this is how claude-plugins-official
+# operates; a batch PR would let one bad upstream block the whole sweep).
 #
-# Bot-free — uses the default GITHUB_TOKEN, so the bump commits + PR are authored
-# by github-actions[bot] (the bot is the last pusher, which lets a human merge the
-# green PR without tripping a "last pusher can't approve" rule). PRs opened with
-# GITHUB_TOKEN don't fire on:pull_request, so the required check `Validate Plugins`
-# would never report on the bump PR; workflow_dispatch is exempt from that
-# recursion guard, so we dispatch it ourselves on the bump branch after the PR is
-# opened. The dispatched check lands on the branch HEAD (= PR head) and satisfies
-# the required check, AND uploads the verdicts artifact revert-failed-bumps.yml
-# reads.
+# Bot-free — uses the default GITHUB_TOKEN, so the bump commits + PRs are authored
+# by github-actions[bot] (the bot is the last pusher, which lets a human merge a
+# green per-entry PR without tripping a "last pusher can't approve" rule). PRs
+# opened with GITHUB_TOKEN don't fire on:pull_request (recursion guard), so the
+# required check `Validate Plugins` would never report on a bump PR; workflow_dispatch
+# is exempt from that guard, so we dispatch it against each per-entry bump branch
+# after its PR is opened. The dispatched check lands on the branch HEAD (= PR head)
+# and satisfies the required check.
 #
-# Cost-control / convergence is downstream:
-#   - freeze-shas (.github/freeze-shas.txt) holds known-broken-at-HEAD entries at
-#     their current pin so they're never bumped into a red PR.
-#   - revert-failed-bumps.yml drops any entry that still fails the dispatched
-#     validate from the batch PR, so one bad upstream can't block the rest and the
-#     PR converges to green on its own.
+# freeze-shas (.github/freeze-shas.txt) holds known-broken-at-HEAD entries at their
+# current pin so they don't open a perpetually-red per-entry PR each run.
+#
+# max-bumps caps per-run work (each bump is its own PR). Per-entry PRs are reviewed
+# and merged individually; raise the cap via the dispatch input to clear a backlog
+# faster, but mind the PR volume on a large marketplace.
 
 on:
   schedule:
@@ -29,14 +29,14 @@ on:
   workflow_dispatch:
     inputs:
       max_bumps:
-        description: Cap on plugins bumped this run
+        description: Cap on plugins bumped this run (each = its own PR)
         required: false
-        default: '300'
+        default: '30'
 
 permissions:
   contents: write
   pull-requests: write
-  actions: write  # gh workflow run validate-plugins.yml on the bump branch
+  actions: write  # gh workflow run validate-plugins.yml per per-entry bump branch
 
 concurrency:
   group: bump-plugin-shas
@@ -48,46 +48,64 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # freeze-shas input is a space-separated name list; the committed file is
-      # one slug per line (with # comments). Join the non-comment lines.
+      # freeze-shas input is a space-separated name list; the committed file is one
+      # slug per line (with # comments). Join the non-comment lines. `|| true` on
+      # grep: an empty/all-comment file matches nothing, so `grep -v` exits 1 — a
+      # VALID "no freezes" state, not an error; without it set -o pipefail aborts
+      # the step. Not a masked gate — an empty list is the legitimate result.
       - name: Load freeze list
         id: freeze
         run: |
           set -euo pipefail
           f=.github/freeze-shas.txt
           if [[ -f "$f" ]]; then
-            list="$(grep -vE '^[[:space:]]*(#|$)' "$f" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+            list="$({ grep -vE '^[[:space:]]*(#|$)' "$f" || true; } | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
           else
             list=""
           fi
           echo "list=$list" >> "$GITHUB_OUTPUT"
           echo "::notice::freeze-shas: $(wc -w <<<"$list") entr(y/ies) held at current pin"
 
-      # createCommitOnBranch-based bump so commits are signed by GitHub and
-      # satisfy the org-level required_signatures ruleset on main. Local dogfood
-      # ref (this repo hosts the action); external consumers SHA-pin it.
+      # createCommitOnBranch-based bump so commits are signed by GitHub and satisfy
+      # the org-level required_signatures ruleset on main. Local dogfood ref (this
+      # repo hosts the action); external consumers SHA-pin it. pr-mode: per-entry →
+      # one PR per bumped plugin on bump/<name>; a failure isolates to its own PR.
       - uses: ./.github/actions/bump-plugin-shas
         id: bump
         with:
           marketplace-path: .claude-plugin/marketplace.json
-          max-bumps: ${{ inputs.max_bumps || '300' }}
+          max-bumps: ${{ inputs.max_bumps || '30' }}
           freeze-shas: ${{ steps.freeze.outputs.list }}
+          pr-mode: per-entry
           claude-cli-version: latest
 
-      # `bump/plugin-shas` is the action's default pr-branch (batch mode). The
-      # dispatched validate run diffs the branch against origin/main (the action's
-      # base-ref fallback when there's no pull_request event) and validates only
-      # the bumped entries.
-      # NOTE: this requires validate-plugins.yml WITH `workflow_dispatch:` to
-      # already be on the base branch (main), because the bump action branches
-      # bump/plugin-shas off main — so the dispatch resolves the workflow as it
-      # exists on main. This works once this feature is merged; a pre-merge test
-      # from a feature branch dispatches main's (old) validate-plugins.yml and the
-      # dispatch fails. Don't let that failure mask an otherwise-successful bump.
-      - name: Dispatch validate on bump branch
-        if: steps.bump.outputs.pr-url != ''
+      # Per-entry fan-out: dispatch the required validate check against EACH per-entry
+      # bump branch (recursion guard → on:pull_request won't fire on a GITHUB_TOKEN-
+      # opened PR). `pr-urls` is a JSON array of {name, old_sha, new_sha, branch,
+      # pr_url}. Attempt every dispatch, then fail the step if any failed — a missing
+      # required check would leave its bump PR silently unmergeable, and the action
+      # skips slugs with an open PR so it would never be retried.
+      #
+      # NOTE (post-merge requirement): the bump branch is cut from `main`, so the
+      # dispatch resolves validate-plugins.yml as it exists on main — workflow_dispatch
+      # must already be on main (true once this feature is merged). A pre-merge test
+      # from a feature branch will fail here, which the `|| { … }` surfaces as a
+      # warning rather than masking an otherwise-successful bump.
+      - name: Dispatch validate per per-entry PR
+        if: steps.bump.outputs.pr-urls != '' && steps.bump.outputs.pr-urls != '[]'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_URLS: ${{ steps.bump.outputs.pr-urls }}
         run: |
-          gh workflow run validate-plugins.yml --ref bump/plugin-shas \
-            || echo "::warning::Could not dispatch validate-plugins.yml on bump/plugin-shas — is validate-plugins.yml with workflow_dispatch already on the base branch? (post-merge requirement)"
+          set -euo pipefail
+          fails="$(mktemp)"
+          jq -c '.[]' <<<"$PR_URLS" | while read -r entry; do
+            branch=$(jq -r '.branch' <<<"$entry")
+            name=$(jq -r '.name' <<<"$entry")
+            echo "Dispatching validate-plugins.yml against $branch ($name)"
+            gh workflow run validate-plugins.yml --ref "$branch" \
+              || { echo "::warning::Could not dispatch validate-plugins.yml against $branch ($name) — is validate-plugins.yml with workflow_dispatch on the base branch yet? Re-dispatch: gh workflow run validate-plugins.yml --ref $branch"; echo "$branch" >> "$fails"; }
+          done
+          if [ -s "$fails" ]; then
+            echo "::warning::$(wc -l < "$fails" | tr -d ' ') validate dispatch(es) failed (see annotations); those bump PR(s) need a manual re-dispatch for their required check."
+          fi
