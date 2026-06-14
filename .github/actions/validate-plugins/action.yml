@@ -101,6 +101,25 @@ outputs:
   report-path:
     description: Path to the markdown report
     value: ${{ steps.report.outputs.report-path }}
+  completed:
+    description: >
+      "true" iff the run produced at least one verdict row (validation actually
+      ran). "false" signals an infra error (an unhandled crash left results.jsonl
+      empty) — distinct from a clean all-pass (completed=true + empty failed list).
+      The bump-revert loop must treat completed=false as a no-op, never "all clear".
+    value: ${{ steps.report.outputs.completed }}
+  failed-subjects:
+    description: >
+      JSON array of marketplace ENTRY NAMES whose bump can be reverted to clear the
+      failure (cli-external fails + per-entry invariant fails). Whole-marketplace /
+      unmappable failures are NOT here — see `nonrevertable`.
+    value: ${{ steps.report.outputs.failed-subjects }}
+  nonrevertable:
+    description: >
+      JSON array of failure subjects that dropping a single entry's source.sha
+      cannot clear (whole-marketplace I1/I2/I7, marketplace-schema, fatal). Non-empty
+      ⇒ the revert loop must abort + alert rather than spend its pass budget.
+    value: ${{ steps.report.outputs.nonrevertable }}
 
 runs:
   using: composite

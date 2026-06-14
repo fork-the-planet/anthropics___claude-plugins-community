@@ -10,6 +10,14 @@ on:
     paths:
       - '.claude-plugin/**'
       - '.github/actions/**'
+  # `validate` is dispatched by bump-plugin-shas.yml against the bump branch. A PR
+  # opened with GITHUB_TOKEN does not fire on:pull_request (GitHub's recursion
+  # guard), so this required check would never report on a bump PR and the PR
+  # could never go green/mergeable. workflow_dispatch is exempt from that guard;
+  # the dispatched run's check lands on the branch HEAD (= the bump PR's head SHA)
+  # and satisfies the required check. The dispatched run also uploads the
+  # `validate-verdicts` artifact that revert-failed-bumps.yml consumes.
+  workflow_dispatch:
 
 jobs:
   validate:
@@ -30,6 +38,9 @@ jobs:
       - name: External manifest resolution tests
         run: bash .github/actions/validate-plugins/test-external-manifest.sh
 
+      - name: Report verdict tests (bump-revert seam)
+        run: bash .github/actions/validate-plugins/test-report.sh
+
       # Dogfood: this repo uses its own local copy of the action.
       # External consumers MUST pin a SHA — see the action README.
       - uses: ./.github/actions/validate-plugins
@@ -37,3 +48,20 @@ jobs:
           marketplace-path: .claude-plugin/marketplace.json
           skip-local-folders: "true"
           scope-errors-to-changed: "true"
+
+      # Publish the per-entry verdicts so revert-failed-bumps.yml (a separate
+      # workflow_run) can drop the failing bumps — RUNNER_TEMP is wiped at job
+      # end, so an uploaded artifact is the only cross-run transport. `if: always`
+      # is mandatory: the action's step above exits 1 on a validation failure, and
+      # the FAILING run is precisely the one revert consumes. The action's
+      # `if: always()` Report step writes all three files on every exit path;
+      # `if-no-files-found: ignore` covers the Setup-crash case (nothing written) —
+      # the consumer treats a missing artifact as the infra-error no-op.
+      - name: Upload validate verdicts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-verdicts
+          path: ${{ runner.temp }}/validate-plugins/run-*.json
+          if-no-files-found: ignore
+          retention-days: 7
