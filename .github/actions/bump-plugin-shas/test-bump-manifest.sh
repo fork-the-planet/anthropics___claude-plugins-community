@@ -35,9 +35,13 @@ mkdir -p "$TMP/bin"
 
 cat > "$TMP/bin/git" <<EOF
 #!/usr/bin/env bash
-# Hermetic git shim. ls-remote → fixed HEAD; clone → mkdir dest (plugin.json only
-# for the *charlie* fixture); fetch/checkout/init/remote/ls-tree (incl. via -C) →
-# no-op 0. Anything else fails closed.
+# Hermetic git shim. ls-remote → fixed HEAD; clone → mkdir dest, then per the url's
+# trailing path segment: a real plugin.json for .../charlie, a present-but-empty
+# subdir for .../withskills, and nothing else (so .../alpha etc. get an EMPTY tree).
+# fetch/checkout/init/remote/ls-tree (incl. via -C) → no-op 0. Anything else fails closed.
+# Match on the EXACT trailing segment (*/charlie, not *charlie*) so a future fixture
+# name that merely CONTAINS "charlie" can't accidentally inherit a real manifest and
+# silently hollow the synth assertion.
 case "\$1" in
   ls-remote) printf '%s\tHEAD\n' "$HEAD_SHA"; exit 0 ;;
   clone)
@@ -47,14 +51,16 @@ case "\$1" in
     url="\$a1"; dest="\$a2"
     mkdir -p "\$dest" || exit 1
     case "\$url" in
-      *charlie*) mkdir -p "\$dest/.claude-plugin" && printf '{"name":"charlie"}' > "\$dest/.claude-plugin/plugin.json" || exit 1 ;;
+      */charlie)    mkdir -p "\$dest/.claude-plugin" && printf '{"name":"charlie"}' > "\$dest/.claude-plugin/plugin.json" || exit 1 ;;
+      */withskills) mkdir -p "\$dest/skills" || exit 1 ;;  # subdir PRESENT but no manifest → strict:false synthesizes INTO it
+      # */withsub deliberately gets NO subdir → exercises the subdir-existence guard.
     esac
     exit 0 ;;
   # -C is a deliberate catch-all no-op for the in-clone ops bump.sh runs via
-  # \`git -C "\$dest" fetch|checkout\` (and the subtree-probe's init/remote/fetch/
-  # ls-tree, unreached here — no fixture sets source.path). We do not dispatch on
-  # the inner verb (\$3): every in-clone op the current fixtures trigger is an
-  # intended no-op, and the clone arm already laid down the tree.
+  # \`git -C "\$dest" fetch|checkout\` AND the subtree-probe's init/remote/fetch/
+  # ls-tree (reached now that some fixtures set source.path). The probe is fail-open:
+  # ls-tree returns no output here → empty old/new tree oids → no suppression →
+  # falls through to the normal clone+guard path, which is exactly what we test.
   -C|init|remote|fetch|checkout|ls-tree) exit 0 ;;
   *) echo "git shim: unexpected invocation: \$*" >&2; exit 1 ;;
 esac
@@ -183,11 +189,11 @@ echo "=== bump-plugin-shas manifest-synthesis tests (per-entry) ==="
 #   alpha   — strict:false, no plugin.json  → SYNTHESIZED + bumped
 #   beta    — default strict, no plugin.json → SKIPPED "no plugin manifest" (fail-closed)
 #   charlie — default strict, HAS plugin.json (clone shim) → bumped unchanged (regression guard)
-# FIXTURE↔SHIM CONTRACT: the git clone shim writes a plugin.json ONLY for a *charlie*
-# url, so alpha/beta deliberately get an EMPTY clone tree — that is what forces the
-# synthesize (alpha, strict:false → mrc=2) vs fail-closed (beta, strict-default → mrc=1)
-# paths. Renaming a fixture must preserve this: a name matching the shim's `*charlie*`
-# glob would get a real manifest and silently turn the synth assertion hollow.
+# FIXTURE↔SHIM CONTRACT: the git clone shim writes a plugin.json ONLY for the
+# .../charlie url (exact trailing segment), so alpha/beta deliberately get an EMPTY
+# clone tree — that is what forces the synthesize (alpha, strict:false → mrc=2) vs
+# fail-closed (beta, strict-default → mrc=1) paths. Renaming a fixture must preserve
+# this: a name whose url's trailing segment is exactly `charlie` gets a real manifest.
 f=$(mk synth <<'EOF'
 {"plugins":[
   {"name":"alpha","strict":false,"source":{"url":"https://github.com/acme/alpha","sha":"1111111111111111111111111111111111111111"}},
@@ -235,6 +241,46 @@ OPEN_PR_BRANCH=""
 assert_skip_reason "alpha" "open bump PR already exists"     "open PR on bump/alpha → alpha early-skipped with that reason"
 assert_not_bumped  "alpha"                                   "open-PR alpha not bumped"
 assert_bumped      "charlie"                                 "open PR on alpha does not block charlie's bump"
+
+echo
+echo "--- subdir-existence guard (declared source.path gone at the new SHA) ---"
+# A strict:false external with a source.path whose subdir does NOT exist in the
+# clone must be a hard SKIP "subdir not found", NOT a synthesis: without the guard,
+# resolve_external_manifest would mkdir -p the vanished path and synthesize a phantom
+# {name} manifest → a false bump to a SHA where the plugin content is gone. Mirrors
+# validate-plugins/30-validate-cli-external.sh. The clone shim creates NO subdir for
+# a .../withsub url, so target="$dest/skills" is absent → the guard fires.
+f=$(mk subdir_gone <<'EOF'
+{"plugins":[
+  {"name":"withsub","strict":false,"source":{"url":"https://github.com/acme/withsub","sha":"4444444444444444444444444444444444444444","path":"skills"}}
+]}
+EOF
+)
+run_bump "$f"
+assert_rc          0                                         "subdir-gone run exits 0 (clean skip)"
+assert_skip_reason "withsub" "subdir 'skills' not found"      "strict:false + vanished source.path → skip 'subdir not found' (NOT synthesized)"
+assert_not_bumped  "withsub"                                 "vanished-subdir entry NOT bumped (no phantom synthesis)"
+# The synth log must be ABSENT (the guard fires before resolve_external_manifest).
+total=$((total+1))
+if grep -qF "synthesized a minimal one" <<<"$OUT"; then
+  echo "  FAIL no-synthesis-for-vanished-subdir — synthesis was logged despite the guard"; failures=$((failures+1))
+else echo "  PASS no-synthesis-for-vanished-subdir (guard fired before resolve)"; fi
+
+echo
+echo "--- subdir-existence guard: PRESENT subdir does NOT over-fire ---"
+# Counterpart: a strict:false external whose declared subdir IS present (but ships no
+# manifest there) must still SYNTHESIZE + bump — the guard must not block legitimate
+# subdir entries. The clone shim creates $dest/skills for a .../withskills url.
+f=$(mk subdir_present <<'EOF'
+{"plugins":[
+  {"name":"withskills","strict":false,"source":{"url":"https://github.com/acme/withskills","sha":"5555555555555555555555555555555555555555","path":"skills"}}
+]}
+EOF
+)
+run_bump "$f"
+assert_rc          0                                         "subdir-present run exits 0"
+assert_bumped      "withskills"                              "strict:false + present subdir + no manifest → synthesized + bumped (guard does not over-fire)"
+assert_not_skipped "withskills"                              "present-subdir entry NOT skipped"
 
 echo
 echo "=== $((total-failures))/$total passed ==="

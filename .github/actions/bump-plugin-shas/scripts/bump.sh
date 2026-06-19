@@ -236,6 +236,16 @@ while IFS= read -r entry; do
   fi
 
   target="$dest${subdir:+/$subdir}"
+  # A declared subdir that's gone at the new SHA is a hard skip, NOT a synthesis
+  # case (mirror 30-validate-cli-external.sh:101-105). Without this guard,
+  # resolve_external_manifest below would mkdir -p the vanished path and
+  # synthesize a phantom {name} manifest for a strict:false entry — a false bump
+  # to a SHA where the plugin's content dir no longer exists. The no-op subtree
+  # probe above does NOT catch this (a removed path yields an empty new tree oid
+  # → treated as a real bump, by design), so the check belongs here.
+  if [[ -n "$subdir" && ! -d "$target" ]]; then
+    skip "$name" "subdir '$subdir' not found at $full_url@${new_sha:0:8}"; rm -rf -- "$dest"; continue
+  fi
   # strict:false (skills-only) externals ship no plugin.json — the marketplace
   # synthesizes one from inline fields. Mirror validate-plugins
   # (30-validate-cli-external.sh): synthesize a minimal manifest for them rather

@@ -112,6 +112,30 @@ assert_skipped_count() {
   else echo "  FAIL $2 — skipped[] has $got, expected $1"; failures=$((failures+1)); fi
 }
 
+echo "=== stub fidelity: has_unsafe_chars matches the real common.sh ==="
+# The stub lib above hand-copies has_unsafe_chars from validate-plugins/lib/common.sh
+# so this suite can stay network-free. That copy is the SAME guard the `only`
+# validation cases below assert against — if the real charset ever changes (e.g.
+# adds * or ?), the copy would silently keep testing stale behavior and the
+# injection-guard cases would pass against a definition that no longer ships. Pin
+# the two together: run both implementations over a probe battery and require they
+# agree on every input. (Each is sourced in its own subshell so neither clobbers
+# the other; the real common.sh is pure function defs + a safe set/RESULTS_FILE top.)
+REAL_COMMON="$ACTION_PATH/../validate-plugins/lib/common.sh"
+total=$((total+1))
+if [[ ! -f "$REAL_COMMON" ]]; then
+  echo "  FAIL has_unsafe_chars stub-vs-real — real common.sh not found at $REAL_COMMON"; failures=$((failures+1))
+else
+  _drift=""
+  for _p in "plain-name" "@scope/plugin" "Foo.Bar" "UPPER" "a b" "a	b" 'a$b' 'a`b' 'a;b' 'a&b' 'a|b' 'a(b' 'a)b' 'a<b' 'a>b' 'a"b' "a'b" 'a\b' "a*b" "a?b" "a[b]" ""; do
+    _s=0; ( source "$TMP/lib.sh";    has_unsafe_chars "$_p" ) >/dev/null 2>&1 || _s=$?
+    _r=0; ( source "$REAL_COMMON";    has_unsafe_chars "$_p" ) >/dev/null 2>&1 || _r=$?
+    [[ "$_s" == "$_r" ]] || _drift="$_drift [$_p: stub=$_s real=$_r]"
+  done
+  if [[ -z "$_drift" ]]; then echo "  PASS has_unsafe_chars stub agrees with real common.sh across the probe battery"
+  else echo "  FAIL has_unsafe_chars stub DRIFTED from real common.sh:$_drift"; failures=$((failures+1)); fi
+fi
+
 echo "=== bump-plugin-shas freeze/exempt tests ==="
 
 # 1. A frozen, pinned entry is held and recorded — even though its host IS
