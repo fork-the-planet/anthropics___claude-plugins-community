@@ -411,8 +411,10 @@
       "name": "agent-blueprint-skills",
       "description": "Open-source AI agent skills for enterprise deployment. Three skills: (1) ServiceNow AI Agent Studio reference with data model, entity mapping, tool types, prompting patterns, and browser navigation. (2) Vendor-agnostic agent deployment methodology with phased rollout, pilot-first approach, and test gates. (3) Multi-tool research agent with automatic depth routing from free to paid tools. Works with Claude Code, OpenAI Codex, and any coding agent via the Agent Skills open standard.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/agent-blueprint/agent-blueprint-skills.git",
+        "path": "plugins/agent-blueprint-skills",
+        "ref": "main",
         "sha": "4d65fbba6c6e71db41f037c3e3f5ebabd37ee3ae"
       },
       "homepage": "https://agentblueprint.ai"
@@ -2236,8 +2238,10 @@
       "name": "backend-security-skills",
       "description": "Security auditor for Node.js and Python backend APIs. Four skills cover pre-audit reconnaissance (route graph, auth matrix, invariants), static code audit across the OWASP API Security Top 10 via 8 parallel agents (authz / authn / injection / deserialization-and-ssrf / crypto-and-secrets / resource-and-business-logic / config-and-supply-chain / llm-and-integration), and live HTTP probing that verifies findings with reproducible curl transcripts. Outputs markdown or JSON with severity + CWE + OWASP API Top 10 tags per finding. Built for Express, NestJS, Fastify, Koa, Next.js, FastAPI, Django, Flask, and Starlette.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/souzavinny/backend-security-skills.git",
+        "path": "plugin",
+        "ref": "main",
         "sha": "ee05fc022a7441bc275d044d67b814e2cd22269f"
       },
       "homepage": "https://github.com/souzavinny/backend-security-skills"
@@ -6426,8 +6430,10 @@
       "name": "cybrix-deploy",
       "description": "Deploys static sites to a live HTTPS URL via the Cybrix hosting service. Automatically detects Next.js export, Astro, Vite, Hugo, Eleventy, and plain HTML. Returns a live URL on *.cbrx.cc in under 60 seconds.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/cybrixcc/cybrix-skills.git",
+        "path": "plugins/cybrix-deploy",
+        "ref": "master",
         "sha": "84cf581f0427647d93d9b574d81d8147f7c87f8e"
       },
       "homepage": "https://cybrix.cc"
@@ -8471,8 +8477,10 @@
       "name": "finops-skills",
       "description": "AWS FinOps for Claude Code  cost optimization, waste detection, right-sizing, and reservations across all reservable AWS services. Covers Compute Savings Plans, EC2 Instance SP, EC2 RIs, RDS RIs, ElastiCache reserved nodes, OpenSearch reserved instances, Redshift reserved nodes, and DynamoDB\nreserved capacity, with full scoping rules and payment math. Also includes EBS gp2→gp3 migration, S3 lifecycle, NAT Gateway/data-transfer optimization, idle-resource sweeps, multi-account governance with SCP templates, and EKS cost (Karpenter, pod right-sizing, ALB Ingress aggregation, Kubecost). Ships three slash commands and four diagnostic scripts that call the AWS CLI directly no MCP server required.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/clouddrove/claude-skills.git",
+        "path": "plugins/finops-skills",
+        "ref": "main",
         "sha": "77a73aa60287564bd259c72c8940ab42350bc763"
       },
       "homepage": "https://github.com/clouddrove/claude-skills/tree/main/plugins/finops-skills"
@@ -16666,8 +16674,10 @@
       "name": "repo-doctor",
       "description": "repo-doctor diagnoses README \"shape problems\" — the hero never lands, install-to-first-success buries the lede, the \"what is this\" sentence assumes prior context, the badge row is louder than the content — and produces a prioritized punch list a maintainer can act on in an afternoon. Read-only by default; opens a PR only when the user explicitly asks.\n\nKey features:\n- 9-criterion rubric scored 1–5 with cited line numbers and one-line fixes\n- Rubric weighting adapts to inferred repo category: library, CLI, framework, app, spec, or personal project\n- Audience inference (working developers, newcomers, maintainers, mixed) — catches the most common shape problem: README pitched at the wrong audience for its category\n- Punch list grouped P0 (blocking) / P1 (high-leverage) / P2 (nice-to-have)\n- Three operating modes (Auto / Semi-auto / Manual) with the same conversational density tradeoff as repo-visuals\n- Optional upstream PR with the punch list as the description; never auto-applies edits",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/livlign/claude-skills.git",
+        "path": "plugins/repo-doctor",
+        "ref": "main",
         "sha": "7f66ce9d577e51456260e6b4062bcc9c488d9224"
       },
       "homepage": "https://github.com/livlign/claude-skills/tree/main/plugins/repo-doctor"
@@ -18414,8 +18424,10 @@
       "name": "skills-lab",
       "description": "skills-lab is a meta-skill plugin for engineers who build and maintain agent operating systems. It packages\nreusable, gated protocols for high-stakes operations on agent codebases — the kind of work where a single\nsloppy edit corrupts a whole skill graph. The first skill, skill-transplant, grafts a feature from a source\nrepo into a target repo via a 5-phase gated protocol (survey → plan → graft → verify → integrate), with\nexplicit checkpoints so a human can intercept before any irreversible step.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/SujinHwang27/agent-os-lab.git",
+        "path": "skills-lab",
+        "ref": "main",
         "sha": "a1fa42a84e4cca87504e99a4331d53006ed19bbd"
       },
       "homepage": "https://github.com/SujinHwang27/agent-os-lab"
@@ -18445,8 +18457,10 @@
       "description": "Skyvern browser automation skills for web scraping and interaction via remote MCP.",
       "category": "development",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/mark1ian/skyvern-skills.git",
+        "path": "plugins/skyvern-browser-automation",
+        "ref": "main",
         "sha": "a3464829c1e76f8ac74a578752ec10b0e1b6a2ff"
       },
       "homepage": "https://github.com/mark1ian/skyvern-skills"
@@ -22509,8 +22523,10 @@
       "name": "xilinx-suite",
       "description": "An AI coding skill (Claude Code / Codex / OpenClaw) that turns natural language into production-ready Vivado / Vitis HLS / Vitis Unified / PetaLinux scripts. Describe what you want to build, and get runnable Tcl, XDC, shell scripts, and C/C++ templates -- covering the complete FPGA/MPSoC design flow from HLS algorithm to boot image.",
       "source": {
-        "source": "url",
+        "source": "git-subdir",
         "url": "https://github.com/QingquanYao/xilinx-skill.git",
+        "path": "plugins/xilinx-suite",
+        "ref": "main",
         "sha": "ccffd3704c0cd133a763a805eee893bd9c6fcf56"
       },
       "homepage": "https://github.com/QingquanYao/xilinx-skill"
